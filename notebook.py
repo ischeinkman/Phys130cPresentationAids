@@ -2,6 +2,7 @@
 from qutip import *
 import numpy as np
 import random
+import matplotlib.pyplot as plt
 
 #%% [markdown]
 # ## Utilities
@@ -19,7 +20,7 @@ def build_initial(k0, k1, num_zeros):
     # Add in the extra zeroes at the end
     for cur in range(0, num_zeros):
         output = tensor(output, basis(2, 0))
-    return output .unit()
+    return output.unit()
 #%% [markdown]
 # Applies a *classical* 1 bit bitflip error to density matrix $rho$
 # with probability $p$. 
@@ -62,7 +63,6 @@ def qbitflip(epsilon):
 def qphaseflip(epsilon):
     bit_mat = qbitflip(epsilon)
     ret = snot() * bit_mat * snot() 
-    display(ret)
     return ret
 #%% [markdown]
 # Applies an operator equivalent to $\sum_{i\in states} |i>$ to density 
@@ -77,12 +77,13 @@ def project_states(rho, states):
     ret = ret.unit()
     return ret 
 
-# %%
+# %% [markdown]
+# Generalized error gate. $ptheta$ and $pphi$ become polar angle coordinates 
+# both normalized to [0, 1], with the matrix evaluating to a projection from the 
+# resultant coordinate transform to a sum of $I, X, Z$. 
+#%%
 def qerror(ptheta, pphi):
-    theta = ptheta * 2 * np.pi 
-    phi = pphi * np.pi 
-    return np.cos(phi) * identity(2) + np.cos(theta) * np.sin(phi) * sigmax() + np.sin(theta) * np.sin(phi) * sigmaz()
-
+    return qphaseflip(ptheta) * qbitflip(pphi)
 #%%
 three_bit_ts = QubitCircuit(3, reverse_states=False)
 three_bit_ts.add_state('\psi', targets=[0], state_type='input')
@@ -105,6 +106,31 @@ display(test_inp.ptrace([0]))
 display((qbitflip(0.1) * basis(2, 0)).ptrace([0]))
 display((gate_sequence_product(three_bit_ts.propagators()) * test_inp).ptrace([0]).unit().tidyup())
 display((gate_sequence_product(three_bit_ts.propagators()) * test_inp).ptrace([0]).unit().tidyup().purity())
+
+#%%
+def perform_test():
+    epsilon = random.random() * 0.5
+    initial_state = build_initial(0, 1, 2).unit()
+    initial_error = (qbitflip(epsilon) * initial_state.extract_states([0, 4], normalize = True)).unit()
+    initial_error_val = 1 - abs((initial_state.extract_states([0, 4], normalize=True).dag() * initial_error)[0,0])**2
+    three_bit_ts.user_gates['E_f'] = lambda x: qbitflip(epsilon)
+    corrected_error = (gate_sequence_product(three_bit_ts.propagators()) * initial_state).extract_states([0, 4], normalize=True)
+    corrected_error_val = abs( (initial_state.extract_states([0, 4], normalize = True).dag() * corrected_error)[0, 0])**2
+    return (epsilon, 1 - corrected_error_val)
+
+xdata = []
+ydata = []
+for test in range(0, 500):
+    cur = perform_test()
+    xdata.append(cur[0])
+    ydata.append(cur[1])
+fit_function = xdata.copy()
+fit_function.sort()
+plt.xlabel('P(Bit Flip)')
+plt.ylabel('P(Error)')
+plt.plot(fit_function, fit_function)
+plt.scatter(xdata, ydata)
+plt.show()
 
 
 # %%
@@ -149,4 +175,45 @@ display(inp.extract_states([0, 2**8], normalize=True))
 display(nine_bit_ts.user_gates['Error']())
 display( (nine_bit_ts.user_gates['Error']() *  inp.extract_states([0, 2**8], normalize=True) ).unit())
 display((gate_sequence_product(nine_bit_ts.propagators()) * inp).extract_states([0, 2**8], normalize=True))
+# %%
+
+def perform_ninebit_test():
+    epsilon1 = random.random() * 1.0
+    epsilon2 = random.random() * 1.0
+    err_gate = qerror(epsilon1, epsilon2)
+    initial_state = build_initial(0, 1, 8).unit()
+    initial_substate = initial_state.extract_states([0, 256], normalize=True)
+    initial_error = (err_gate * initial_substate).unit()
+    initial_error_val = 1 - abs((initial_substate.dag() * initial_error)[0,0])**2
+    nine_bit_ts.user_gates['Error'] = lambda: err_gate
+    corrected_error = (gate_sequence_product(nine_bit_ts.propagators()) * initial_state).extract_states([0, 256], normalize=True)
+    corrected_error_val = 1 - abs( (initial_substate.dag() * corrected_error)[0, 0])**2
+    return ((epsilon1, epsilon2, initial_error_val),  corrected_error_val)
+
+xdata = []
+xdata2 = []
+xdata3 = []
+xdata4 = []
+xdata5 = []
+xdata6 = []
+ydata = []
+for test in range(0, 400):
+    cur = perform_ninebit_test()
+    xdata.append(cur[0][0])
+    xdata2.append(cur[0][1])
+    xdata3.append(cur[0][1] + cur[0][0])
+    xdata4.append(cur[0][1]**2 + cur[0][0]**2)
+    xdata5.append(np.sqrt(cur[0][1]**2 + cur[0][0]**2))
+    xdata6.append(cur[0][2])
+    ydata.append(cur[1])
+# %%
+
+fit_function = xdata6.copy()
+fit_function.sort()
+plt.xlabel('P(Single Bit Error)')
+plt.ylabel('P(Error)')
+plt.plot(fit_function, [ y for y in fit_function])
+plt.scatter([k for k in xdata6], [y for y in ydata])
+plt.show()
+
 # %%
